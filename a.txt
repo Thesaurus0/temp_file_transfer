@@ -1,0 +1,222 @@
+pip install cx_Oracle pymysql pandas openpyxl
+
+
+import cx_Oracle
+import pymysql
+import pandas as pd
+from openpyxl import Workbook
+
+# Oracle and MySQL connection details
+oracle_conn_str = cx_Oracle.makedsn('oracle_db_endpoint', 'oracle_db_port', service_name='oracle_service_name')
+oracle_conn = cx_Oracle.connect(user='oracle_username', password='oracle_password', dsn=oracle_conn_str)
+
+mysql_conn = pymysql.connect(host='mysql_db_endpoint', port=3306, user='mysql_username', password='mysql_password', db='mysql_db_name')
+
+# Table names
+mysql_table = 'mysql_table_A'
+oracle_table = 'oracle_table_A'
+
+# Key columns
+key_columns = ['name', 'gender', 'age']
+
+# Excel workbook for results
+wb = Workbook()
+summary_sheet = wb.active
+summary_sheet.title = 'Summary'
+summary_sheet.append(['Type', 'Details'])
+
+details_sheet = wb.create_sheet(title='Details')
+details_sheet.append(['Table', 'Row', 'Field', 'MySQL Value', 'Oracle Value'])
+
+def compare_data():
+    # Fetch MySQL data
+    mysql_query = f"SELECT * FROM {mysql_table} LIMIT 100"
+    mysql_df = pd.read_sql(mysql_query, mysql_conn)
+    mysql_df.to_csv(f'{mysql_table}_100.csv', index=False)
+    
+    # Fetch Oracle data based on MySQL keys
+    keys = mysql_df[key_columns].drop_duplicates()
+    key_conditions = " OR ".join([f"({key_columns[0]}='{row[key_columns[0]]}' AND {key_columns[1]}='{row[key_columns[1]]}' AND {key_columns[2]}={row[key_columns[2]]})" for _, row in keys.iterrows()])
+    oracle_query = f"SELECT * FROM {oracle_table} WHERE {key_conditions}"
+    oracle_df = pd.read_sql(oracle_query, oracle_conn)
+    oracle_df.to_csv(f'{oracle_table}_100.csv', index=False)
+    
+    # Compare row counts
+    if len(mysql_df) != len(oracle_df):
+        summary_sheet.append(['Row count mismatch', f'MySQL: {len(mysql_df)}, Oracle: {len(oracle_df)}'])
+    
+    # Compare data
+    compare_and_log_differences(mysql_df, oracle_df)
+
+def compare_and_log_differences(mysql_df, oracle_df):
+    # Set indexes
+    mysql_df.set_index(key_columns, inplace=True)
+    oracle_df.set_index(key_columns, inplace=True)
+    
+    for key in mysql_df.index:
+        if key not in oracle_df.index:
+            summary_sheet.append(['Missing in Oracle', f'Key: {key}'])
+            continue
+        
+        mysql_row = mysql_df.loc[key]
+        oracle_row = oracle_df.loc[key]
+        
+        for column in mysql_df.columns:
+            if column not in oracle_df.columns:
+                summary_sheet.append(['Missing column in Oracle', f'Column: {column}'])
+                continue
+            mysql_value = mysql_row[column]
+            oracle_value = oracle_row[column]
+            if pd.isnull(mysql_value) and pd.isnull(oracle_value):
+                continue
+            if mysql_value != oracle_value:
+                details_sheet.append([mysql_table, key, column, mysql_value, oracle_value])
+    
+    for key in oracle_df.index:
+        if key not in mysql_df.index:
+            summary_sheet.append(['Missing in MySQL', f'Key: {key}'])
+    
+    for column in oracle_df.columns:
+        if column not in mysql_df.columns:
+            summary_sheet.append(['Missing column in MySQL', f'Column: {column}'])
+
+# Run the comparison
+compare_data()
+
+# Save the results to Excel
+wb.save('comparison_results.xlsx')
+
+# Close connections
+oracle_conn.close()
+mysql_conn.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+pip install cx_Oracle pymysql pandas openpyxl
+import cx_Oracle
+import pymysql
+import pandas as pd
+from openpyxl import Workbook
+
+# Oracle and MySQL connection details
+oracle_conn_str = cx_Oracle.makedsn('oracle_db_endpoint', 'oracle_db_port', service_name='oracle_service_name')
+oracle_conn = cx_Oracle.connect(user='oracle_username', password='oracle_password', dsn=oracle_conn_str)
+
+mysql_conn = pymysql.connect(host='mysql_db_endpoint', port=3306, user='mysql_username', password='mysql_password', db='mysql_db_name')
+
+# Tables to compare
+tables = ['A', 'B', 'C']  # Replace with your actual table names
+
+# Excel workbook for results
+wb = Workbook()
+summary_sheet = wb.active
+summary_sheet.title = 'Summary'
+summary_sheet.append(['Table', 'Mismatch Type', 'Details'])
+
+details_sheet = wb.create_sheet(title='Details')
+details_sheet.append(['Table', 'Row', 'Field', 'MySQL Value', 'Oracle Value'])
+
+def compare_data():
+    for table_suffix in tables:
+        mysql_table = f'mysql_table_{table_suffix}'
+        oracle_table = f'oracle_table_{table_suffix}'
+        key_column = 'key_column'  # Replace with your actual key column
+
+        # Fetch MySQL data
+        mysql_query = f"SELECT * FROM {mysql_table} LIMIT 100"
+        mysql_df = pd.read_sql(mysql_query, mysql_conn)
+
+        # Fetch Oracle data based on MySQL keys
+        keys = tuple(mysql_df[key_column].tolist())
+        if len(keys) == 1:
+            keys = f"('{keys[0]}')"  # Special case for single key
+        oracle_query = f"SELECT * FROM {oracle_table} WHERE {key_column} IN {keys}"
+        oracle_df = pd.read_sql(oracle_query, oracle_conn)
+
+        # Export to CSV
+        mysql_csv = f'{mysql_table}_100.csv'
+        oracle_csv = f'{oracle_table}_100.csv'
+        mysql_df.to_csv(mysql_csv, index=False)
+        oracle_df.to_csv(oracle_csv, index=False)
+
+        # Compare row counts
+        if len(mysql_df) != len(oracle_df):
+            summary_sheet.append([mysql_table, 'Row count mismatch', f'MySQL: {len(mysql_df)}, Oracle: {len(oracle_df)}'])
+
+        # Compare data
+        compare_and_log_differences(mysql_df, oracle_df, table_suffix, key_column)
+
+def compare_and_log_differences(mysql_df, oracle_df, table_suffix, key_column):
+    # Ensure dataframes are sorted by key_column
+    mysql_df.sort_values(by=[key_column], inplace=True)
+    oracle_df.sort_values(by=[key_column], inplace=True)
+
+    mysql_df.set_index(key_column, inplace=True)
+    oracle_df.set_index(key_column, inplace=True)
+
+    for key in mysql_df.index:
+        if key not in oracle_df.index:
+            summary_sheet.append([f'mysql_table_{table_suffix}', 'Missing row in Oracle', f'Key: {key}'])
+            continue
+        mysql_row = mysql_df.loc[key]
+        oracle_row = oracle_df.loc[key]
+
+        for column in mysql_df.columns:
+            if column not in oracle_df.columns:
+                summary_sheet.append([f'mysql_table_{table_suffix}', 'Missing column in Oracle', f'Column: {column}'])
+                continue
+            mysql_value = mysql_row[column]
+            oracle_value = oracle_row[column]
+            if pd.isnull(mysql_value) and pd.isnull(oracle_value):
+                continue
+            if mysql_value != oracle_value:
+                details_sheet.append([f'mysql_table_{table_suffix}', key, column, mysql_value, oracle_value])
+
+    for column in oracle_df.columns:
+        if column not in mysql_df.columns:
+            summary_sheet.append([f'mysql_table_{table_suffix}', 'Missing column in MySQL', f'Column: {column}'])
+
+# Run the comparison
+compare_data()
+
+# Save the results to Excel
+wb.save('comparison_results.xlsx')
+
+# Close connections
+oracle_conn.close()
+mysql_conn.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
