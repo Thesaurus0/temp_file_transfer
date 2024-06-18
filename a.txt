@@ -215,6 +215,111 @@ mysql_conn.close()
 
 
 
+pip install pandas pymysql openpyxl pyodps
+
+
+import pymysql
+import pandas as pd
+from openpyxl import Workbook
+from pyodps import ODPS
+
+# MySQL connection details
+mysql_conn = pymysql.connect(
+    host='mysql_db_endpoint',
+    port=3306,
+    user='mysql_username',
+    password='mysql_password',
+    db='mysql_db_name'
+)
+
+# MaxCompute connection details
+access_id = 'your_access_id'
+access_key = 'your_access_key'
+project = 'your_project'
+endpoint = 'http://service.odps.aliyun.com/api'
+odps = ODPS(access_id, access_key, project, endpoint)
+
+# Table names
+mysql_table = 'mysql_table_A'
+maxcompute_table = 'maxcompute_table_A'
+
+# Key columns
+key_columns = ['name', 'gender', 'age']
+
+# Excel workbook for results
+wb = Workbook()
+summary_sheet = wb.active
+summary_sheet.title = 'Summary'
+summary_sheet.append(['Type', 'Details'])
+
+details_sheet = wb.create_sheet(title='Details')
+details_sheet.append(['Table', 'Row', 'Field', 'MySQL Value', 'MaxCompute Value'])
+
+def fetch_mysql_data():
+    query = f"SELECT * FROM {mysql_table} LIMIT 100"
+    return pd.read_sql(query, mysql_conn)
+
+def fetch_maxcompute_data(keys):
+    key_conditions = " OR ".join(
+        [f"({key_columns[0]}='{row[key_columns[0]]}' AND {key_columns[1]}='{row[key_columns[1]]}' AND {key_columns[2]}={row[key_columns[2]]})" 
+         for _, row in keys.iterrows()]
+    )
+    query = f"SELECT * FROM {maxcompute_table} WHERE {key_conditions}"
+    with odps.execute_sql(query).open_reader() as reader:
+        return pd.DataFrame(reader.to_pandas())
+
+def compare_data():
+    mysql_df = fetch_mysql_data()
+    mysql_df.to_csv(f'{mysql_table}_100.csv', index=False)
+
+    keys = mysql_df[key_columns].drop_duplicates()
+    maxcompute_df = fetch_maxcompute_data(keys)
+    maxcompute_df.to_csv(f'{maxcompute_table}_100.csv', index=False)
+
+    if len(mysql_df) != len(maxcompute_df):
+        summary_sheet.append(['Row count mismatch', f'MySQL: {len(mysql_df)}, MaxCompute: {len(maxcompute_df)}'])
+
+    compare_and_log_differences(mysql_df, maxcompute_df)
+
+def compare_and_log_differences(mysql_df, maxcompute_df):
+    mysql_df.set_index(key_columns, inplace=True)
+    maxcompute_df.set_index(key_columns, inplace=True)
+
+    for key in mysql_df.index:
+        if key not in maxcompute_df.index:
+            summary_sheet.append(['Missing in MaxCompute', f'Key: {key}'])
+            continue
+        
+        mysql_row = mysql_df.loc[key]
+        maxcompute_row = maxcompute_df.loc[key]
+        
+        for column in mysql_df.columns:
+            if column not in maxcompute_df.columns:
+                summary_sheet.append(['Missing column in MaxCompute', f'Column: {column}'])
+                continue
+            mysql_value = mysql_row[column]
+            maxcompute_value = maxcompute_row[column]
+            if pd.isnull(mysql_value) and pd.isnull(maxcompute_value):
+                continue
+            if mysql_value != maxcompute_value:
+                details_sheet.append([mysql_table, key, column, mysql_value, maxcompute_value])
+    
+    for key in maxcompute_df.index:
+        if key not in mysql_df.index:
+            summary_sheet.append(['Missing in MySQL', f'Key: {key}'])
+
+    for column in maxcompute_df.columns:
+        if column not in mysql_df.columns:
+            summary_sheet.append(['Missing column in MySQL', f'Column: {column}'])
+
+# Run the comparison
+compare_data()
+
+# Save the results to Excel
+wb.save('comparison_results.xlsx')
+
+# Close connections
+mysql_conn.close()
 
 
 
